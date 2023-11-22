@@ -1,0 +1,220 @@
+---
+title: "Class 14"
+author: "Hsiang-Ying Lu (PID: A15608316)"
+format: pdf
+toc: true
+
+---
+# Data Import
+
+```{r}
+library(DESeq2)
+```
+
+```{r}
+metaFile <- "GSE37704_metadata.csv"
+countFile <- "GSE37704_featurecounts.csv"
+
+# Import metadata and take a peak
+metadata = read.csv(metaFile, row.names=1)
+head(metadata)
+```
+Have a wee peak at these objects
+```{r}
+# Import countdata
+counts = read.csv(countFile, row.names=1)
+head(counts)
+```
+# Data Tidying
+I need to get rid of the first `length` column in `counts:`
+
+```{r}
+counts <- counts[,-1]
+```
+
+
+Remove any genes with zero counts in all samples/columns
+
+> Q. How many genes do we have to start with?
+
+```{r}
+nrow(counts)
+```
+
+- FInd the rowSums() this will be zero for any genes with no data
+- Find the zero sum genes 
+- Remove them before doing our DESeq
+
+```{r}
+to.rm.ind <- rowSums(counts) == 0
+counts <- counts[!to.rm.ind,]
+nrow(counts)
+```
+
+# DESeq setup and analysis
+
+```{r}
+library(DESeq2)
+```
+
+```{r}
+dds <- DESeqDataSetFromMatrix(countData = counts,
+                              colData = metadata,
+                              design = ~condition)
+```
+Now run our main DESeq analysis
+
+```{r}
+#1 message: false
+dds <- DESeq(dds)
+res <- results(dds)
+head(res)
+```
+
+# Side-note: QC with PCA
+
+```{r}
+pc <- prcomp(t(counts),scale=T)
+```
+
+```{r}
+summary(pc)
+```
+
+```{r}
+plot(pc$x[,1],pc$x[,2], col=as.factor(metadata$condition), pch=15)
+```
+
+
+# Add annotation data
+# Save my results
+# Visualization
+
+
+```{r}
+plot(res$log2FoldChange, -log(res$padj))
+```
+
+```{r}
+# Make a color vector for all genes
+mycols <- rep("gray", nrow(res) )
+
+# Color red the genes with absolute fold change above 2
+mycols[ abs(res$log2FoldChange) > 2 ] <- "red"
+
+# Color blue those with adjusted p-value less than 0.01
+#  and absolute fold change more than 2
+inds <- (res$pvalue<0.01) & (abs(res$log2FoldChange) > 2 )
+mycols[ inds ] <- "blue"
+
+plot( res$log2FoldChange, -log(res$padj), col=mycols, xlab="Log2(FoldChange)", ylab="-Log(P-value)" )
+```
+
+Let's add some color and annotation data to this plot. 
+
+```{r}
+library("AnnotationDbi")
+library("org.Hs.eg.db")
+```
+
+
+```{r}
+columns(org.Hs.eg.db)
+```
+
+```{r}
+head(row.names(counts))
+```
+
+
+```{r}
+res$symbol <- mapIds(org.Hs.eg.db,
+                     keys=row.names(counts),
+                     keytype = "ENSEMBL",
+                     column = "SYMBOL",
+                     multiVals="first")
+res$entrez <- mapIds(org.Hs.eg.db,
+                     keys=row.names(counts),
+                     keytype = "ENSEMBL",
+                     column = "ENTREZID",
+                     multiVals="first")
+head(res)
+```
+
+# Geneset enrichmen/Pathway analysis
+
+```{r}
+library(gage)
+library(gageData)
+library(pathview)
+```
+
+The `gage()` function wants a "vector of importance" in our case here it will be fold-change values with associated entrez gene names. 
+
+```{r}
+foldchange <- res$log2FoldChange
+names(foldchange) <- res$entrez
+```
+
+```{r}
+data(kegg.sets.hs)
+# Get the results
+keggres = gage(foldchange, gsets=kegg.sets.hs)
+```
+
+```{r}
+head(keggres$less)
+```
+
+hsa04110 cell cycle
+
+```{r}
+pathview(gene.data=foldchange, pathway.id="hsa04110")
+```
+Have a look at my figure (@fig-cellcycle)
+
+![Cell Cycle hsa04110](hsa04110.pathview.png){#fig-cellcycle}
+
+## Gene Ontology
+
+```{r}
+data(go.sets.hs)
+data(go.subs.hs)
+# Focus on Biological Process subset of GO
+gobpsets = go.sets.hs[go.subs.hs$BP]
+
+gobpres = gage(foldchange, gsets=gobpsets, same.dir=TRUE)
+
+```
+
+```{r}
+head(gobpres$less)
+```
+
+
+## Reactome
+
+We will use the online version of Reactome. It wants a list of your genes. We will write ths out from R here:
+
+```{r}
+sig_genes <- res[res$padj <= 0.05 & !is.na(res$padj), "symbol"]
+
+write.table(sig_genes, 
+            file="significant_genes.txt", row.names=FALSE, col.names=FALSE, quote=FALSE)
+```
+
+Reactome website: https://reactome.org/PathwayBrowser/#TOOL=AT
+
+![](R-HSA-69306.png)
+![](R-HSA-73894.png)
+
+
+
+
+
+
+
+
+
+
+
