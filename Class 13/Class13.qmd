@@ -1,0 +1,303 @@
+---
+title: "Class 13: RNA seq analysis with DESeq2"
+author: "Hsiang-Ying Lu (PID: A15608316)"
+format: pdf
+---
+
+The data for this hands-on session comes from a published RNA-seq experiment where airway smooth muscle cells were treated with dexamethasone, a synthetic glucocorticoid steroid with anti-inflammatory effects (Himes et al. 2014).
+
+
+```{r}
+#| message: false
+#| warning: false
+library(DESeq2)
+```
+
+## Data import
+
+```{r}
+# Complete the missing code
+counts <- read.csv("airway_scaledcounts.csv", row.names=1)
+metadata <-  read.csv("airway_metadata.csv")
+```
+
+```{r}
+head(counts)
+dim(counts)
+```
+
+```{r}
+head(metadata)
+sum(metadata$dex == "control")
+table(metadata$dex)
+```
+
+
+> Q1. How many genes are in this dataset? 
+> 38694
+
+> Q2. How many ‘control’ cell lines do we have? 
+> 4
+
+I want to compare the control to the treated columns. To do this I will 
+
+- Step 1. Identify and extract the "control" columns. 
+- Step 2. Calculate the mean value per gene for all these "control" columns and save as `control.mean`. 
+- Step 3. Do the same for treated
+- Step 4. Compare the `control.mean` and `treated.mean` values. 
+
+Step 1:
+```{r}
+control.inds <- metadata$dex=="control"
+```
+
+```{r}
+head(counts[,control.inds])
+```
+
+```{r}
+control.means <- rowMeans(counts[,control.inds])
+head(control.means)
+```
+
+```{r}
+treated.inds <- metadata$dex=="treated"
+```
+
+```{r}
+head(counts[,treated.inds])
+```
+
+```{r}
+treated.means <- rowMeans(counts[,treated.inds])
+head(treated.means)
+```
+
+We will combine our meancount data for bookkeeping purpose
+
+```{r}
+meancounts <- data.frame(control.means, treated.means)
+colSums(meancounts)
+```
+
+Let's see what these count values look like...
+```{r}
+plot(meancounts)
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(meancounts)+
+  aes(control.means, treated.means)+
+  geom_point(alpha=0.2)
+```
+
+```{r}
+plot(meancounts, log="xy")
+```
+
+Logs are super useful when we have such skewed data 
+
+```{r}
+#Treated/control
+log2(20/10)
+```
+
+Add log2(Fold-change) values to our wee results table. 
+
+```{r}
+meancounts$log2fc <- log2(meancounts$treated.means/meancounts$control.means)
+head(meancounts)
+```
+
+I need to exclude any genes with zero counts as we can't say anything about them anyway from this experiment and it causes me math pain. 
+
+```{r}
+# What values in the first two cols are zero
+
+to.rm.inds <- rowSums(meancounts[,1:2] == 0)>0
+mycounts <- meancounts[!to.rm.inds, ]
+```
+
+> Q. How many genes do I have left?
+
+```{r}
+nrow(mycounts)
+```
+
+> Q. How many genes are "up-degulated" i.e. have a log2(fold-change)
+greater than +2?
+
+```{r}
+sum(mycounts$log2fc > +2)
+```
+
+> Q. How many are "down-regulated"with a log2(fold-change)
+less than -2?
+
+```{r}
+sum(mycounts$log2fc < -2)
+```
+
+> Q10. Do you trust these results? Why or why not?
+> No, because there's no information on statistical significant.
+
+## Running DESeq
+
+Like many bioconductor analysis packages DESeq wants it's input in a very particular way. 
+
+```{r}
+dds <- DESeqDataSetFromMatrix(countData=counts, 
+                              colData = metadata,
+                              design =~dex)
+```
+
+To run DESeq analysis we call the main function from the package called `DESeq(dds)`
+
+```{r}
+dds <- DESeq(dds)
+```
+
+To get the results out of this `dds` object we can use the DESeq `results()` function. 
+
+```{r}
+res <- results(dds)
+head(res)
+```
+
+A common summary visualization is callsed a Volcano plot. 
+
+```{r}
+plot(res$log2FoldChange, -log(res$padj),
+     xlab="Log2 Fold-Change",
+     ylab="-log p-value")
+abline(v=c(-2, 2), col="red")
+abline(h=-log(0.05), col="blue")
+```
+
+```{r}
+mycols <- rep("gray", nrow(res))
+mycols[res$log2FoldChange > 2] <- "black"
+mycols[res$log2FoldChange < -2] <- "black"
+mycols[res$padj>0.05] <- "gray"
+```
+
+```{r}
+plot(res$log2FoldChange, -log(res$padj), col=mycols,
+     xlab="Log2 Fold-Change",
+     ylab="-log p-value")
+abline(v=c(-2, 2), col="red")
+abline(h=-log(0.05), col="blue")
+```
+
+# Save our results to date
+
+```{r}
+write.csv(res, file="myresults.csv")
+```
+
+# adding annotation data
+
+We need to translate or "map" our ensemble IDs into more understandable gene names 
+
+```{r}
+library("AnnotationDbi")
+library("org.Hs.eg.db")
+```
+
+```{r}
+columns(org.Hs.eg.db)
+```
+
+```{r}
+res$symbol <- mapIds(org.Hs.eg.db,
+                     keys=row.names(res), # Our genenames
+                     keytype="ENSEMBL",   # The format of our genenames
+                     column="SYMBOL",     # The new format we want to add
+                     multiVals="first")
+```
+
+```{r}
+head(res)
+```
+
+```{r}
+res$entrez <- mapIds(org.Hs.eg.db,
+                     keys=row.names(res), # Our genenames
+                     keytype="ENSEMBL",   # The format of our genenames
+                     column="ENTREZID",     # The new format we want to add
+                     multiVals="first")
+```
+```{r}
+head(res)
+```
+
+```{r}
+res$uniprot <- mapIds(org.Hs.eg.db,
+                     keys=row.names(res), # Our genenames
+                     keytype="ENSEMBL",   # The format of our genenames
+                     column="UNIPROT",     # The new format we want to add
+                     multiVals="first")
+```
+```{r}
+head(res)
+```
+
+```{r}
+res$genenames <- mapIds(org.Hs.eg.db,
+                     keys=row.names(res), # Our genenames
+                     keytype="ENSEMBL",   # The format of our genenames
+                     column="GENENAME",     # The new format we want to add
+                     multiVals="first")
+```
+```{r}
+head(res)
+```
+## Pathway analysis
+```{r}
+library(pathview)
+library(gage)
+library(gageData)
+
+data(kegg.sets.hs)
+
+# Examine the first 2 pathways in this kegg set for humans
+head(kegg.sets.hs, 2)
+```
+
+```{r}
+foldchanges = res$log2FoldChange
+names(foldchanges) = res$entrez
+head(foldchanges)
+```
+Run gage:
+
+```{r}
+# Get the results
+keggres = gage(foldchanges, gsets=kegg.sets.hs)
+```
+
+```{r}
+attributes(keggres)
+```
+
+```{r}
+# Look at the first three down (less) pathways
+head(keggres$less, 3)
+```
+
+Let's have a look at one of these pathways
+```{r}
+pathview(gene.data=foldchanges, pathway.id="hsa05310")
+```
+
+![](hsa05310.pathview.png)
+
+
+
+
+
+
+
+
