@@ -1,0 +1,137 @@
+---
+title: "Class10: Structural Bioinformatics pt1"
+author: "Hsiang-Ying Lu (PID: A15608316)"
+format: pdf
+---
+
+The main repository of structural data is the PDB. Let's examine what it contains.
+
+I download conposition stats from: < https://www.rcsb.org/stats/summary >
+
+At the time of writting there are 183,201 protein structures. 
+In UniProt, there are 251,600,768 protein sequences. 
+
+```{r}
+round(183201/251600768*100, 2)
+```
+
+```{r}
+stats <- read.csv("Data Export Summary.csv", row.names=1)
+head(stats)
+```
+```{r}
+string <- c("10", "100", 1, "1,000")
+as.numeric(string) +1
+```
+
+> Q. Write a function to fix this non numerix table...
+We can use the `gsub()` function. 
+
+```{r}
+x <-string
+as.numeric(gsub(",", "", x))
+
+```
+
+```{r}
+rm.comma <-  function(x){
+  as.numeric(gsub(",", "", x))
+}
+
+pdbstats <- apply(stats, 2, rm.comma)
+```
+
+We will add the row names from the original wee table...
+
+```{r}
+rownames(pdbstats) <- row.names(stats)
+pdbstats
+```
+
+> Q1: What percentage of structures in the PDB are solved by X-Ray and Electron Microscopy.
+
+```{r}
+apply(pdbstats, 2, sum)
+```
+```{r}
+totals <- apply(pdbstats, 2, sum)
+round(totals/totals["Total"]*100, 2)
+```
+> X-Ray:  84.83% Electron Microscopy: 8.33%
+
+> Q2-3: Let's skip these...
+
+# Using Nol* to examine HIV-Pr
+
+Here is a rubbish pic of HIV-Pr that is not very useful yet.
+
+![](1HSG.png)
+
+
+> Q4: Water molecules normally have 3 atoms. Why do we see just one atom per water molecule in this structure?
+
+> We are only seeing the oxygen atom because water molecules are too small (0.5A). 1HSG Resolution: 2.00 A.
+
+> Q5: There is a critical “conserved” water molecule in the binding site. Can you identify this water molecule? What residue number does this water molecule have
+
+> Yes, It's at 308
+
+> Q6: Generate and save a figure clearly showing the two distinct chains of HIV-protease along with the ligand. You might also consider showing the catalytic residues ASP 25 in each chain and the critical water (we recommend “Ball & Stick” for these side-chains). Add this figure to your Quarto document.
+
+And a nicer pic colored by secondary structure with catalytic active site ASP25 shown in each chain along with MK1 drug and all important water...
+
+![A lovely image](1HSG-3.png)
+
+# Using the bio3d package
+
+```{r}
+library(bio3d)
+pdb <- read.pdb("1hsg")
+pdb
+```
+
+```{r}
+attributes(pdb)
+```
+
+```{r}
+head(pdb$atom)
+```
+
+```{r}
+head(pdb$atom$resid)
+```
+
+```{r}
+aa321(pdb$atom$resid [pdb$calpha])
+```
+
+# Predicting functional motions of a single structure
+
+Run a Normal Mode Analysis (NMA) - a bioinformatics method to predict fucntional motions.
+
+```{r}
+adk <- read.pdb("6s36")
+modes <- nma(adk)
+plot(modes)
+```
+
+```{r}
+mktrj(modes, pdb=adk, file="modes.pdb")
+```
+
+![](MODES.PDB.png)
+
+> Q7: How many amino acid residues are there in this pdb object? 
+> 198
+
+> Q8: Name one of the two non-protein residues? 
+> MK1
+
+> Q9: How many protein chains are in this structure? 
+> 2 chains.
+
+
+
+
+
